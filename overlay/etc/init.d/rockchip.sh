@@ -49,29 +49,21 @@ install_packages() {
 		MALI=bifrost-g52-g24p0
 		ISP=rkaiq_rk3568
 		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11-wayland-gbm*.deb
 		;;
         rk3562)
 		MALI=bifrost-g52-g24p0
 		ISP=rkaiq_rk3562
 		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11-wayland-gbm*.deb
 		;;
         rk3576)
 		MALI=bifrost-g52-g24p0
 		ISP=rkaiq_rk3576
 		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11-wayland-gbm*.deb
 		;;
         rk3588|rk3588s)
 		ISP=rkaiq_rk3588
 		MALI=valhall-g610-g24p0
 		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11-wayland-gbm*.deb
 		;;
         *)
 		echo "This chip does not support gpu acceleration or not input!!!"
@@ -118,6 +110,10 @@ esac
 compatible="${compatible#rockchip,}"
 boardname="${compatible%%rockchip,*}"
 
+/etc/init.d/boot_init.sh
+
+sleep 3s
+
 # first boot configure
 if [ ! -e "/usr/local/first_boot_flag" ]; then
     echo "It's the first time booting. The rootfs will be configured."
@@ -127,7 +123,9 @@ if [ ! -e "/usr/local/first_boot_flag" ]; then
 
     install_packages "$chipname" || exit 1
 
-    setcap CAP_SYS_ADMIN+ep /usr/bin/gst-launch-1.0
+    if [ -e /usr/bin/gst-launch-1.0 ]; then
+        setcap CAP_SYS_ADMIN+ep /usr/bin/gst-launch-1.0
+    fi
 
     if [ -e "/dev/rfkill" ]; then
         rm /dev/rfkill
