@@ -2,3 +2,4 @@ binary/
 *.tar.gz
 *.img
 *.lock
+ubuntu-build-service/*/wget-log*

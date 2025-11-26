@@ -214,16 +214,16 @@ systemctl disable apt-daily-upgrade.service
 if [[ "$TARGET" == "gnome" ]]; then
     \${APT_INSTALL} mpv fire-config-gui
     #Desktop background picture
-    # ln -sf /usr/share/images/desktop-base/lubancat-wallpaper.png /etc/alternatives/desktop-background
+    # ln -sf /usr/share/images/desktop-base/armsom-wallpaper.png /etc/alternatives/desktop-background
 elif [[ "$TARGET" == "xfce" ]]; then
     \${APT_INSTALL} mpv fire-config-gui
     #Desktop background picture
     #chown -hR cat:cat /home/cat/.config
-    ln -sf /usr/share/images/desktop-base/lubancat-wallpaper.png /etc/alternatives/desktop-background
+    ln -sf /usr/share/images/desktop-base/armsom-wallpaper.png /etc/alternatives/desktop-background
 elif [[ "$TARGET" == "lxde" ]]; then
     \${APT_INSTALL} mpv fire-config-gui
     #Desktop background picture
-    # ln -sf /usr/share/desktop-base/images/lubancat-wallpaper.png 
+    # ln -sf /usr/share/desktop-base/images/armsom-wallpaper.png 
 elif [ "$TARGET" == "server" ]; then
     \${APT_INSTALL} bluez bluez-tools
 fi

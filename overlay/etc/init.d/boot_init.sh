@@ -1,15 +1,5 @@
 #!/bin/bash -e
 
-### BEGIN INIT INFO
-# Provides:          LubanCat
-# Required-Start:
-# Required-Stop:
-# Default-Start:
-# Default-Stop:
-# Short-Description:
-# Description:       This script initializes custom services or configurations at boot time.
-### END INIT INFO
-
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 board_info() {
