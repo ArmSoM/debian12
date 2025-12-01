@@ -56,7 +56,7 @@ install_packages() {
 		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
 		;;
         rk3576)
-		MALI=bifrost-g52-g24p0
+		MALI=bifrost-g52-g13p0
 		ISP=rkaiq_rk3576
 		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
 		;;
