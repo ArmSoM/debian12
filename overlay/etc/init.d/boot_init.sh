@@ -5,15 +5,34 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 board_info() {
 	if [[ "$2" == "rk3576" ]]; then
 		case $1 in
-			sige5)
+			armsom-sige5)
 				BOARD_NAME='armsom-sige5'
 				BOARD_DTB='rk3576-armsom-sige5.dtb'
 				BOARD_uEnv='uEnvarmsom-sige5.txt'
 				;;
-			cm5-io)
+			armsom-cm5-io)
 				BOARD_NAME='armsom-cm5'
 				BOARD_DTB='rk3576-armsom-cm5-io.dtb'
 				BOARD_uEnv='uEnvarmsom-cm5-io.txt'
+				;;
+		esac
+	elif [[ "$2" == "rk3588" ||  "$2" == "rk3588s" ]]; then
+			case $1 in
+			armsom-sige7)
+				BOARD_NAME='armsom-sige7'
+				BOARD_DTB='rk3588-armsom-sige7.dtb'
+				BOARD_uEnv='uEnvarmsom-sige7.txt'
+				;;
+			armsom-aim7-io)
+				BOARD_NAME='armsom-aim7-io'
+				BOARD_DTB='rk3588-armsom-aim7-io.dtb'
+				BOARD_uEnv='uEnvarmsom-aim7-io.txt'
+				;;
+			*)
+				echo "Device ID Error !!!"
+				BOARD_NAME='LubanCat-RK3588'
+				BOARD_DTB='rk3588-lubancat-generic.dtb'
+				BOARD_uEnv='uEnvLubanCat.txt'
 				;;
 		esac
 	fi
@@ -25,7 +44,7 @@ board_info() {
 
 board_id() {
 	SOC_type=$(cat /proc/device-tree/compatible | tr -d '\0' | cut -d, -f3)
-    BOARD_ID=$(cat /proc/device-tree/compatible | tr -d '\0' | cut -d ',' -f2 | cut -d 'r' -f1)
+    BOARD_ID=$(cat /proc/device-tree/compatible | tr '\0' '\n' | head -1 | cut -d ',' -f2 | cut -d '-' -f2-)
 	echo "SOC_type:"$SOC_type
 }
 
@@ -55,13 +74,7 @@ if [ ! -e "/boot/boot_init" ] ; then
 			done
 
 			Boot_Part="${Root_Part::-1}${Boot_Part_Num}"
-			# mount check
-            if ! mountpoint -q /boot; then
-                echo "挂载 /boot 分区..."
-                mount "$Boot_Part" /boot
-            else
-                echo "/boot 分区已经挂载，跳过挂载操作"
-            fi
+            mount "$Boot_Part" /boot
 			echo "$Boot_Part  /boot  auto  defaults  0 2" >> /etc/fstab
 		fi
 
