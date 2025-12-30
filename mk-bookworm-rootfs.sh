@@ -176,15 +176,6 @@ ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
 echo "deb http://mirrors.ustc.edu.cn/debian/ bookworm-backports main contrib" >> /etc/apt/sources.list
 echo "deb-src http://mirrors.ustc.edu.cn/debian/ bookworm-backports main contrib" >> /etc/apt/sources.list
 
-# Add embedfire packages source
-mkdir -p /etc/apt/keyrings
-curl -fsSL https://Embedfire.github.io/keyfile | gpg --dearmor -o /etc/apt/keyrings/embedfire.gpg
-chmod a+r /etc/apt/keyrings/embedfire.gpg
-echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/embedfire.gpg] https://cloud.embedfire.com/mirrors/ebf-debian carp-lbc main" | tee /etc/apt/sources.list.d/embedfire-lbc.list > /dev/null
-if [ $MIRROR ]; then
-    echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/embedfire.gpg] https://cloud.embedfire.com/mirrors/ebf-debian $MIRROR main" | tee /etc/apt/sources.list.d/embedfire-$MIRROR.list > /dev/null
-fi
-
 export LC_ALL=C.UTF-8
 
 apt-get update
