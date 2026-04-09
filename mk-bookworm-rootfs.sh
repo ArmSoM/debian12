@@ -173,8 +173,8 @@ done
 
 ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
 
-echo "deb http://mirrors.ustc.edu.cn/debian/ bookworm-backports main contrib" >> /etc/apt/sources.list
-echo "deb-src http://mirrors.ustc.edu.cn/debian/ bookworm-backports main contrib" >> /etc/apt/sources.list
+echo "deb http://mirrors.aliyun.com/debian/ bookworm-backports main contrib" >> /etc/apt/sources.list
+echo "deb-src http://mirrors.aliyun.com/debian/ bookworm-backports main contrib" >> /etc/apt/sources.list
 
 export LC_ALL=C.UTF-8
 
