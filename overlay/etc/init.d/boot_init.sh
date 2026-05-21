@@ -15,6 +15,11 @@ board_info() {
 				BOARD_DTB='rk3576-armsom-cm5-io.dtb'
 				BOARD_uEnv='uEnvarmsom-cm5-io.txt'
 				;;
+			armsom-cm5-cm4-nano-b-io)
+				BOARD_NAME='armsom-cm5-cm4-nano-b-io'
+				BOARD_DTB='rk3576-armsom-cm5-cm4-nano-b-io.dtb'
+				BOARD_uEnv='uEnvarmsom-cm5-cm4-nano-b-io.txt'
+				;;
 		esac
 	elif [[ "$2" == "rk3588" ||  "$2" == "rk3588s" ]]; then
 			case $1 in
@@ -22,6 +27,11 @@ board_info() {
 				BOARD_NAME='armsom-sige7'
 				BOARD_DTB='rk3588-armsom-sige7.dtb'
 				BOARD_uEnv='uEnvarmsom-sige7.txt'
+				;;
+			armsom-w3)
+				BOARD_NAME='armsom-w3'
+				BOARD_DTB='rk3588-armsom-w3.dtb'
+				BOARD_uEnv='uEnvarmsom-w3.txt'
 				;;
 			armsom-aim7-io)
 				BOARD_NAME='armsom-aim7-io'
