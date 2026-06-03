@@ -108,8 +108,15 @@ start_bt_rtk_usb()
 
 start_bt_aic_sdio()
 {
-	do_insmod aic8800_bsp
-	do_insmod aic8800_btlpm
+	# Ensure BSP is loaded (in case wifi didn't load it)
+	if ! lsmod | grep -wq "aic8800_bsp"; then
+		do_insmod aic8800_bsp
+	fi
+	
+	# Load BT LPM (Low Power Management) driver
+	if ! lsmod | grep -wq "aic8800_btlpm"; then
+		do_insmod aic8800_btlpm
+	fi
 
 	killall -q -9 hciattach || true
 	which hciattach >/dev/null
@@ -147,14 +154,25 @@ start_wifi()
 					do_insmod aic8800_usb_fdrv
 				;;
 				sdio) 
+					# AIC8800 SDIO requires loading bsp first, then the main driver
+					echo "Loading AIC8800 SDIO drivers..."
 					do_insmod aic8800_bsp
-					do_insmod aic8800_sdio_fdrv
+					do_insmod aic8800_fdrv
+					
+					# Wait for driver initialization
+					sleep 1
+					
+					# The main driver is already loaded, skip the generic insmod
+					WIFIBT_MODULE=""
 				;;
 			esac
 	esac
 
-	echo "Wi-Fi/BT module: $WIFIBT_MODULE.ko"
-	do_insmod "$WIFIBT_MODULE"
+	# Only try to load generic module if not already handled by aic8800
+	if [ -n "$WIFIBT_MODULE" ]; then
+		echo "Wi-Fi/BT module: $WIFIBT_MODULE.ko"
+		do_insmod "$WIFIBT_MODULE"
+	fi
 
 	for i in `seq 60`; do
 		if wifi_ready; then
