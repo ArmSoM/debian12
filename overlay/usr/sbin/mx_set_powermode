@@ -1,0 +1,357 @@
+#!/bin/bash
+
+
+if [[ $(whoami) != "root" ]]; then
+    echo "ERROR: must be root (sudo)"
+    exit 1
+fi
+
+
+which dialog >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "ERROR: dialog command not found"
+    exit 1
+fi
+
+
+
+CURRENT_FREQ4C=0
+CURRENT_VOLT4C=0
+CURRENT_FREQ2C=0
+CURRENT_VOLT2C=0
+
+
+get_current_vals () {
+
+    if [[ ! -d /etc/memryx ]]; then
+        mkdir -p /etc/memryx
+        chown root:root /etc/memryx
+        chmod 755 /etc/memryx
+    fi
+
+    if [[ ! -f /etc/memryx/power.conf ]]; then
+        printf "# WARNING: manually editing this file is an extremely bad idea. Please don't.\nFREQ4C=500\nVOLT4C=690\nFREQ2C=700\nVOLT2C=725\n" > /etc/memryx/power.conf
+        chmod 644 /etc/memryx/power.conf
+        chown root:root /etc/memryx/power.conf
+    fi
+
+    LINES=$(cat /etc/memryx/power.conf | grep -vE "^#")
+
+    for i in $LINES ; do
+        VAR=$(echo ${i} | cut -d'=' -f 1)
+        VAL=$(echo ${i} | cut -d'=' -f 2)
+        case $VAR in
+            FREQ4C)
+                CURRENT_FREQ4C=$((VAL))
+                ;;
+            VOLT4C)
+                CURRENT_VOLT4C=$((VAL))
+                ;;
+            FREQ2C)
+                CURRENT_FREQ2C=$((VAL))
+                ;;
+            VOLT2C)
+                CURRENT_VOLT2C=$((VAL))
+                ;;
+            *)
+                echo "INVALID ITEM DETECTED IN /etc/memryx/power.conf... Restoring Default..."
+                printf "# WARNING: manually editing this file is an extremely bad idea. Please don't.\nFREQ4C=500\nVOLT4C=690\nFREQ2C=700\nVOLT2C=725\n" > /etc/memryx/power.conf
+                chmod 644 /etc/memryx/power.conf
+                chown root:root /etc/memryx/power.conf
+                CURRENT_FREQ4C=500
+                CURRENT_VOLT4C=690
+                CURRENT_FREQ2C=700
+                CURRENT_VOLT2C=725
+                exit 1
+                ;;
+        esac
+    done
+
+}
+
+
+FREQ_TABLE=(200 300 400 450 500 600 700 750 800 850)
+VOLT_TABLE=(670 675 685 685 690 700 725 745 760 780)
+TOPS_OPTS_4C=("200 MHz" "300 MHz" "400 MHz" "450 MHz" "500 MHz" "600 MHz" "700 MHz" "750 MHz" "800 MHz" "850 MHz")
+TOPS_OPTS_2C=("200 MHz" "300 MHz" "400 MHz" "450 MHz" "500 MHz" "600 MHz" "700 MHz" "750 MHz" "800 MHz" "850 MHz")
+
+# input: freq
+# output: index
+freq_to_idx () {
+    case ${1} in
+        ${FREQ_TABLE[9]})
+            return 9
+            ;;
+        ${FREQ_TABLE[8]})
+            return 8
+            ;;
+        ${FREQ_TABLE[7]})
+            return 7
+            ;;
+        ${FREQ_TABLE[6]})
+            return 6
+            ;;
+        ${FREQ_TABLE[5]})
+            return 5
+            ;;
+        ${FREQ_TABLE[4]})
+            return 4
+            ;;
+        ${FREQ_TABLE[3]})
+            return 3
+            ;;
+        ${FREQ_TABLE[2]})
+            return 2
+            ;;
+        ${FREQ_TABLE[1]})
+            return 1
+            ;;
+        ${FREQ_TABLE[0]})
+            return 0
+            ;;
+        *)
+            return 100
+            ;;
+    esac
+}
+
+# inputs: 4/2, freq, volt
+set_vals () {
+
+    get_current_vals
+    
+    if [[ ${1} == 4 ]]; then
+        printf "# WARNING: manually editing this file is an extremely bad idea. Please don't.\n" > /etc/memryx/power.conf
+        printf "FREQ4C=${2}\n" >> /etc/memryx/power.conf
+        printf "VOLT4C=${3}\n" >> /etc/memryx/power.conf
+        printf "FREQ2C=${CURRENT_FREQ2C}\n" >> /etc/memryx/power.conf
+        printf "VOLT2C=${CURRENT_VOLT2C}\n" >> /etc/memryx/power.conf
+    elif [[ ${1} == 2 ]]; then
+        printf "# WARNING: manually editing this file is an extremely bad idea. Please don't.\n" > /etc/memryx/power.conf
+        printf "FREQ4C=${CURRENT_FREQ4C}\n" >> /etc/memryx/power.conf
+        printf "VOLT4C=${CURRENT_VOLT4C}\n" >> /etc/memryx/power.conf
+        printf "FREQ2C=${2}\n" >> /etc/memryx/power.conf
+        printf "VOLT2C=${3}\n" >> /etc/memryx/power.conf
+    fi
+}
+
+CHOICES4C=()
+CHOICES2C=()
+gen_choices () {
+    
+    get_current_vals
+
+    # first pop the 4C
+    CHOICES4C=()
+    freq_to_idx $CURRENT_FREQ4C
+    IDX=$?
+    if [[ $IDX -eq 9 ]]; then
+        CHOICES4C+=( 9 "\Zb\Z1${TOPS_OPTS_4C[9]}\Zn <--" )
+    else
+        CHOICES4C+=( 9 "\Zb\Z1${TOPS_OPTS_4C[9]}\Zn" )
+    fi
+    if [[ $IDX -eq 8 ]]; then
+        CHOICES4C+=( 8 "\Zb\Z1${TOPS_OPTS_4C[8]}\Zn <--" )
+    else
+        CHOICES4C+=( 8 "\Zb\Z1${TOPS_OPTS_4C[8]}\Zn" )
+    fi
+    if [[ $IDX -eq 7 ]]; then
+        CHOICES4C+=( 7 "\Zb\Z1${TOPS_OPTS_4C[7]}\Zn <--" )
+    else
+        CHOICES4C+=( 7 "\Zb\Z1${TOPS_OPTS_4C[7]}\Zn" )
+    fi
+    if [[ $IDX -eq 6 ]]; then
+        CHOICES4C+=( 6 "\Zb\Z1${TOPS_OPTS_4C[6]}\Zn <--" )
+    else
+        CHOICES4C+=( 6 "\Zb\Z1${TOPS_OPTS_4C[6]}\Zn" )
+    fi
+    if [[ $IDX -eq 5 ]]; then
+        CHOICES4C+=( 5 "\Zb\Z1${TOPS_OPTS_4C[5]}\Zn <--" )
+    else
+        CHOICES4C+=( 5 "\Zb\Z1${TOPS_OPTS_4C[5]}\Zn" )
+    fi
+    if [[ $IDX -eq 4 ]]; then
+        CHOICES4C+=( 4 "${TOPS_OPTS_4C[4]} <--" )
+    else
+        CHOICES4C+=( 4 "${TOPS_OPTS_4C[4]}" )
+    fi
+    if [[ $IDX -eq 3 ]]; then
+        CHOICES4C+=( 3 "\Zb\Z4${TOPS_OPTS_4C[3]}\Zn <--" )
+    else
+        CHOICES4C+=( 3 "\Zb\Z4${TOPS_OPTS_4C[3]}\Zn" )
+    fi
+    if [[ $IDX -eq 2 ]]; then
+        CHOICES4C+=( 2 "\Zb\Z4${TOPS_OPTS_4C[2]}\Zn <--" )
+    else
+        CHOICES4C+=( 2 "\Zb\Z4${TOPS_OPTS_4C[2]}\Zn" )
+    fi
+    if [[ $IDX -eq 1 ]]; then
+        CHOICES4C+=( 1 "\Zb\Z4${TOPS_OPTS_4C[1]}\Zn <--" )
+    else
+        CHOICES4C+=( 1 "\Zb\Z4${TOPS_OPTS_4C[1]}\Zn" )
+    fi
+    if [[ $IDX -eq 0 ]]; then
+        CHOICES4C+=( 0 "\Zb\Z4${TOPS_OPTS_4C[0]}\Zn <--" )
+    else
+        CHOICES4C+=( 0 "\Zb\Z4${TOPS_OPTS_4C[0]}\Zn" )
+    fi
+
+    # now pop the 2C
+    CHOICES2C=()
+    freq_to_idx $CURRENT_FREQ2C
+    IDX=$?
+    if [[ $IDX -eq 9 ]]; then
+        CHOICES2C+=( 9 "${TOPS_OPTS_2C[9]} <--" )
+    else
+        CHOICES2C+=( 9 "${TOPS_OPTS_2C[9]}" )
+    fi
+    if [[ $IDX -eq 8 ]]; then
+        CHOICES2C+=( 8 "${TOPS_OPTS_2C[8]} <--" )
+    else
+        CHOICES2C+=( 8 "${TOPS_OPTS_2C[8]}" )
+    fi
+    if [[ $IDX -eq 7 ]]; then
+        CHOICES2C+=( 7 "${TOPS_OPTS_2C[7]} <--" )
+    else
+        CHOICES2C+=( 7 "${TOPS_OPTS_2C[7]}" )
+    fi
+    if [[ $IDX -eq 6 ]]; then
+        CHOICES2C+=( 6 "${TOPS_OPTS_2C[6]} <--" )
+    else
+        CHOICES2C+=( 6 "${TOPS_OPTS_2C[6]}" )
+    fi
+    if [[ $IDX -eq 5 ]]; then
+        CHOICES2C+=( 5 "${TOPS_OPTS_2C[5]} <--" )
+    else
+        CHOICES2C+=( 5 "${TOPS_OPTS_2C[5]}" )
+    fi
+    if [[ $IDX -eq 4 ]]; then
+        CHOICES2C+=( 4 "\Zb\Z4${TOPS_OPTS_2C[4]}\Zn <--" )
+    else
+        CHOICES2C+=( 4 "\Zb\Z4${TOPS_OPTS_2C[4]}\Zn" )
+    fi
+    if [[ $IDX -eq 3 ]]; then
+        CHOICES2C+=( 3 "\Zb\Z4${TOPS_OPTS_2C[3]}\Zn <--" )
+    else
+        CHOICES2C+=( 3 "\Zb\Z4${TOPS_OPTS_2C[3]}\Zn" )
+    fi
+    if [[ $IDX -eq 2 ]]; then
+        CHOICES2C+=( 2 "\Zb\Z4${TOPS_OPTS_2C[2]}\Zn <--" )
+    else
+        CHOICES2C+=( 2 "\Zb\Z4${TOPS_OPTS_2C[2]}\Zn" )
+    fi
+    if [[ $IDX -eq 1 ]]; then
+        CHOICES2C+=( 1 "\Zb\Z4${TOPS_OPTS_2C[1]}\Zn <--" )
+    else
+        CHOICES2C+=( 1 "\Zb\Z4${TOPS_OPTS_2C[1]}\Zn" )
+    fi
+    if [[ $IDX -eq 0 ]]; then
+        CHOICES2C+=( 0 "\Zb\Z4${TOPS_OPTS_2C[0]}\Zn <--" )
+    else
+        CHOICES2C+=( 0 "\Zb\Z4${TOPS_OPTS_2C[0]}\Zn" )
+    fi
+
+}
+
+
+powermode_menu_4c () {
+
+  HEIGHT=18
+  WIDTH=40
+  CHOICE_HEIGHT=10
+  TITLE="Select Power Mode (4-chip module)"
+  MENU="Frequency"
+
+  gen_choices
+
+  freq_to_idx $CURRENT_FREQ4C
+  STARTPOS=$?
+
+  CHOICE=$(dialog --colors \
+                  --clear \
+                  --title "$TITLE" \
+                  --no-cancel \
+                  --default-item "$STARTPOS" \
+                  --menu "$MENU" \
+                  $HEIGHT $WIDTH $CHOICE_HEIGHT \
+                  "${CHOICES4C[@]}" \
+                  2>&1 >/dev/tty)
+
+  ci=$((CHOICE))
+
+  set_vals 4 ${FREQ_TABLE[$ci]} ${VOLT_TABLE[$ci]}
+
+}
+
+powermode_menu_2c () {
+
+  HEIGHT=18
+  WIDTH=50
+  CHOICE_HEIGHT=10
+  TITLE="Select Power Mode (2-chip module)"
+  MENU="Frequency"
+
+  gen_choices  
+  
+  freq_to_idx $CURRENT_FREQ2C
+  STARTPOS=$?
+
+  CHOICE=$(dialog --colors \
+                  --clear \
+                  --title "$TITLE" \
+                  --no-cancel \
+                  --default-item "$STARTPOS" \
+                  --menu "$MENU" \
+                  $HEIGHT $WIDTH $CHOICE_HEIGHT \
+                  "${CHOICES2C[@]}" \
+                  2>&1 >/dev/tty)
+
+  ci=$((CHOICE))
+
+  set_vals 2 ${FREQ_TABLE[$ci]} ${VOLT_TABLE[$ci]}
+
+}
+
+
+main_menu () {
+
+  while true ; do
+    HEIGHT=15
+    WIDTH=50
+    CHOICE_HEIGHT=4
+    TITLE="MX3 Power Tweak Utility"
+    MENU="Choose one of the following options:"
+    
+    OPTIONS=(1 "Set Power Mode (4-chip module)"
+             2 "Set Power Mode (2-chip module)"
+             3 "Exit")
+ 
+    CHOICEM=$(dialog --clear \
+                    --title "$TITLE" \
+                    --no-cancel \
+                    --menu "$MENU" \
+                    $HEIGHT $WIDTH $CHOICE_HEIGHT \
+                    "${OPTIONS[@]}" \
+                    2>&1 >/dev/tty)
+    
+    case $CHOICEM in
+            1)
+                powermode_menu_4c
+                ;;
+            2)
+                powermode_menu_2c
+                ;;
+            3)
+                clear
+                break
+                exit 0
+                ;;
+    esac
+  done
+
+}
+
+
+
+# MAIN FUNCTION
+main_menu

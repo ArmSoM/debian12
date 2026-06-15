@@ -1,0 +1,195 @@
+#!/bin/bash
+
+
+if [[ $(whoami) != "root" ]]; then
+  echo "ERROR: must run as root (sudo)"
+  exit 1
+fi
+
+
+which dialog >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+  echo "dialog command not found"
+  exit 1
+fi
+
+
+# for Radxa OS / other (?) installers
+do_rsetup_install () {
+  source /usr/lib/rsetup/cli/u-boot-menu.sh
+
+  load_u-boot_setting
+
+  cp /usr/src/memx-drivers*/pcie/dtb/opi5p/mx3_patch.dtbo "$U_BOOT_FDT_OVERLAYS_DIR"
+  if [ $? -ne 0 ]; then
+    dialog \
+      --title "Failed" \
+      --msgbox "\nCould not copy mx3_patch.dtbo to ${U_BOOT_FDT_OVERLAYS_DIR} for some reason\n" \
+      10 50
+    return 1
+  fi
+
+  dialog \
+    --title "Running u-boot-update..." \
+    --prgbox "u-boot-update ; VAR=$? ; if [ $? -eq 0 ]; then printf '\nSuccess\n' ; else printf '\nFailed\n' ; fi ; return \$VAR" 15 65
+  return $?
+}
+
+# for that guy's Ubuntu repo
+do_uboot_install () {
+  cp /usr/src/memx-drivers*/pcie/dtb/opi5p/mx3_patch.dtbo /lib/firmware/
+  if [ $? -ne 0 ]; then
+    dialog \
+      --title "Failed" \
+      --msgbox "\nCould not copy mx3_patch.dtbo to /lib/firmware for some reason\n" \
+      10 50
+    return 1
+  fi
+  grep mx3_patch /etc/default/u-boot
+  if [ $? -ne 0 ]; then
+    echo 'U_BOOT_FDT_OVERLAYS="mx3_patch.dtbo"' >> /etc/default/u-boot
+    echo 'U_BOOT_FDT_OVERLAYS_DIR="/lib/firmware"' >> /etc/default/u-boot
+  fi
+  dialog \
+    --title "Running u-boot-update..." \
+    --prgbox "u-boot-update ; VAR=$? ; if [ $? -eq 0 ]; then printf '\nSuccess\n' ; else printf '\nFailed\n' ; fi ; return \$VAR" 15 65
+  return $?
+}
+
+# for the armbian-style uboot
+do_armbian_install () {
+  dialog \
+    --title "Running armbian-add-overlay..." \
+    --prgbox "armbian-add-overlay /usr/src/memx-drivers*/pcie/dtb/opi5p/mx3_patch.dts" \
+    15 65
+  if [ $? -eq 0 ]; then
+    return 0
+  else
+    dialog \
+      --title "Failed" \
+      --msgbox "\narmbian-add-overlay failed to install mx3_patch.dts\n" \
+      10 50
+    return 1
+  fi
+}
+
+
+# detects which of the above methods to use,
+# then run them
+detect_and_run_dts () {
+
+  which rsetup >/dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    do_rsetup_install
+    return $?
+  elif [[ -f /boot/armbianEnv.txt ]]; then
+    which armbian-add-overlay >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+      do_armbian_install
+      return $?
+    else
+      echo "oof"
+      return 1
+    fi
+  elif [[ -f /etc/default/u-boot ]]; then
+    do_uboot_install
+    return $?
+  else
+    # SHOW ERROR DIALOG HERE
+    dialog \
+      --title "Failed" \
+      --msgbox "\nFailed to detect a device tree installation method.\n\nPlease manually install the dtbo from\n/usr/src/memx-drivers-*/pcie/dtb/opi5p/\n" \
+      10 50
+    return 1
+  fi
+
+}
+
+
+
+# Rasp Pi 5 installer (SPECIAL)
+do_rpi5_install () {
+  if [[ -f /boot/firmware/config.txt ]]; then
+    grep 'dtparam=pciex1_gen=3' /boot/firmware/config.txt
+    if [ $? -ne 0 ]; then
+      echo "dtparam=pciex1_gen=3" >> /boot/firmware/config.txt
+    fi
+    return 0
+  else
+    dialog \
+      --title "Failed" \
+      --msgbox "\n/boot/firmware/config.txt was not found.\n\nIf you are not using Raspberry Pi OS, please manually ensure you have enabled the PCIe controller by following your Linux distribution's relevant instructions." \
+      13 60
+    return 1
+  fi
+}
+
+
+show_success () {
+  dialog \
+    --title "Success" \
+    --msgbox "\nSetup for the MX3 on your system was successful.\n\nPlease REBOOT NOW for the changes to take effect.\n" \
+    10 58
+}
+
+
+HEIGHT=15
+WIDTH=50
+CHOICE_HEIGHT=6
+TITLE="MX3 for ARM Setup"
+MENU="Please choose your board and installation will begin:"
+
+OPTIONS=(1 "Raspberry Pi 5"
+         2 "Orange Pi 5 Plus"
+         3 "Orange Pi 5 MAX"
+         4 "Radxa Rock 5B"
+         5 "Other"
+         6 "Exit")
+
+CHOICEM=$(dialog --clear \
+                --title "$TITLE" \
+                --no-cancel \
+                --menu "$MENU" \
+                $HEIGHT $WIDTH $CHOICE_HEIGHT \
+                "${OPTIONS[@]}" \
+                2>&1 >/dev/tty)
+
+case $CHOICEM in
+        1)
+            do_rpi5_install
+            if [ $? -eq 0 ]; then
+              show_success
+            fi
+            ;;
+        2)
+            detect_and_run_dts 
+            if [ $? -eq 0 ]; then
+              show_success
+            fi
+            ;;
+        3)
+            detect_and_run_dts
+            if [ $? -eq 0 ]; then
+              show_success
+            fi
+            ;;
+        4)
+            detect_and_run_dts
+            if [ $? -eq 0 ]; then
+              show_success
+            fi
+            ;;
+        5)
+            dialog --clear \
+              --title "Not Supported By This Script" \
+              --msgbox "\nWhile some boards may work with the driver package without any additional steps, some will need a Device Tree Overlay file.\n\nIf your device was not in the previous list, and the driver isn't loading properly on your device, please contact MemryX and we can asist in supporting your board." \
+              15 65
+            ;;
+        *)
+            clear
+            ;;
+esac
+    
+
+clear
+exit 0

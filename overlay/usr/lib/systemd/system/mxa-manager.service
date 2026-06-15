@@ -1,0 +1,15 @@
+[Unit]
+Description=The MemryX MX3 device management daemon.
+
+[Service]
+TimeoutStartSec=30
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/mxa_manager
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=mxa_manager
+RuntimeDirectoryMode=0777
+User=mxa-manager
+
+[Install]
+WantedBy=multi-user.target
