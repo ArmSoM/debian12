@@ -1,0 +1,12 @@
+[Unit]
+Description=ES8316 Audio Setup for 3.5mm headphone jack
+After=sound.target
+ConditionPathExists=/dev/snd/controlC2
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/es8316-setup.sh
+RemainAfterExit=yes
+
+[Install]
+
