@@ -16,7 +16,7 @@ board_info() {
 				BOARD_uEnv='uEnvarmsom-cm5-io.txt'
 				;;
 			armsom-aim5-io)
-				BOARD_NAME='armsom-aim5'
+				BOARD_NAME='armsom-aim5-io'
 				BOARD_DTB='rk3576-armsom-aim5-io.dtb'
 				BOARD_uEnv='uEnvarmsom-aim5-io.txt'
 				;;
