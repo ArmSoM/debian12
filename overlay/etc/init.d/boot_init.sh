@@ -111,8 +111,8 @@ if [ ! -e "/boot/boot_init" ] ; then
 		cp -f /boot/logo_kernel.bmp /boot/logo.bmp
 		reboot
 	else
-		echo "PARTLABEL=oem  /oem  ext2  defaults  0 2" >> /etc/fstab
-		echo "PARTLABEL=userdata  /userdata  ext2  defaults  0 2" >> /etc/fstab
+		echo "PARTLABEL=oem  /oem  ext4  defaults  0 2" >> /etc/fstab
+		echo "PARTLABEL=userdata  /userdata  ext4  defaults  0 2" >> /etc/fstab
 		touch /boot/boot_init
 	fi
 fi
