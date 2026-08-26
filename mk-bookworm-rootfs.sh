@@ -295,6 +295,19 @@ fi
 echo -e "\033[47;36m ------- Install libdrm ------ \033[0m"
 \${APT_INSTALL} /packages/libdrm/*.deb
 
+# ==================== 新增：armsom-test 安装逻辑 ====================
+if [[ "$TARGET" == "gnome" || "$TARGET" == "xfce" || "$TARGET" == "lxde" ]]; then
+    if [ -d "/packages/armsom" ]; then
+        echo -e "\033[47;36m -------- armsom-test --------- \033[0m"
+        # 1. 先通过 apt 安装官方源里的 Qt5 多媒体依赖项
+        \${APT_INSTALL} libqt5gui5 qtmultimedia5-dev libqt5multimedia5 libqt5multimediawidgets5
+        
+        # 2. 再通过 apt 自动搜寻安装本地 /packages/armsom/ 下的所有 deb 包
+        \${APT_INSTALL} /packages/armsom/*.deb
+    fi
+fi
+# ===================================================================
+
 if [[ "$TARGET" == "gnome" || "$TARGET" == "xfce" || "$TARGET" == "lxde" ]]; then
     echo -e "\033[47;36m ------ libdrm-cursor -------- \033[0m"
     \${APT_INSTALL} /packages/libdrm-cursor/*.deb
@@ -372,6 +385,10 @@ then
     rm /etc/profile.d/qt.sh
 fi
 cd -
+
+// fix: MACAddressPolicy 
+truncate -s 0 /etc/machine-id
+truncate -s 0 /var/lib/dbus/machine-id 2>/dev/null || true
 
 rm -rf /var/lib/apt/lists/*
 rm -rf /var/cache/
