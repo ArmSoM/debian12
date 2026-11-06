@@ -1,16 +1,7 @@
-#!/bin/bash -e
-### BEGIN INIT INFO
-# Provides:          rockchip
-# Required-Start:
-# Required-Stop:
-# Default-Start:
-# Default-Stop:
-# Short-Description:
-# Description:       Setup rockchip platform environment
-### END INIT INFO
+#!/bin/bash -eE
 
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
+platform_setup()
+{
 install_packages() {
     case $1 in
         rk3288)
@@ -19,51 +10,51 @@ install_packages() {
 		# 3288w
 		cat /sys/devices/platform/*gpu/gpuinfo | grep -q r1p0 && \
 		MALI=midgard-t76x-r18p0-r1p0
-		[ -e /usr/lib/arm-linux-gnueabihf/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11*.deb
+		[ -e /usr/lib/arm-linux-gnueabihf/ ] && first_boot_install_debs /camera_engine_$ISP*.deb
+		first_boot_install_debs /libmali-*$MALI*-x11*.deb
 		;;
         rk3399|rk3399pro)
 		MALI=midgard-t86x-r18p0
 		ISP=rkisp
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11*.deb
+		[ -e /usr/lib/aarch64-linux-gnu/ ] && first_boot_install_debs /camera_engine_$ISP*.deb
+		first_boot_install_debs /libmali-*$MALI*-x11*.deb
 		;;
         rk3328|rk3528)
 		MALI=utgard-450
 		ISP=rkisp
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11*.deb
+		first_boot_install_debs /libmali-*$MALI*-x11*.deb
 		;;
         rk3326|px30)
 		MALI=bifrost-g31-g24p0
 		ISP=rkisp
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11*.deb
+		[ -e /usr/lib/aarch64-linux-gnu/ ] && first_boot_install_debs /camera_engine_$ISP*.deb
+		first_boot_install_debs /libmali-*$MALI*-x11*.deb
 		;;
         rk3128|rk3036)
 		MALI=utgard-400
 		ISP=rkisp
-		[ -e /usr/lib/arm-linux-gnueabihf/ ] && apt install -fy --allow-downgrades /camera_engine_$ISP*.deb
-		apt install -fy --allow-downgrades /libmali-*$MALI*-x11*.deb
+		[ -e /usr/lib/arm-linux-gnueabihf/ ] && first_boot_install_debs /camera_engine_$ISP*.deb
+		first_boot_install_debs /libmali-*$MALI*-x11*.deb
 		;;
         rk3568|rk3566)
 		MALI=bifrost-g52-g24p0
 		ISP=rkaiq_rk3568
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
+		if [ -e /usr/lib/aarch64-linux-gnu/ ]; then tar xvf /rknpu2.tar -C /; fi
 		;;
         rk3562)
 		MALI=bifrost-g52-g24p0
 		ISP=rkaiq_rk3562
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
+		if [ -e /usr/lib/aarch64-linux-gnu/ ]; then tar xvf /rknpu2.tar -C /; fi
 		;;
         rk3576)
 		MALI=bifrost-g52-g13p0
 		ISP=rkaiq_rk3576
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
+		if [ -e /usr/lib/aarch64-linux-gnu/ ]; then tar xvf /rknpu2.tar -C /; fi
 		;;
         rk3588|rk3588s)
 		ISP=rkaiq_rk3588
 		MALI=valhall-g610-g24p0
-		[ -e /usr/lib/aarch64-linux-gnu/ ] && tar xvf /rknpu2.tar -C /
+		if [ -e /usr/lib/aarch64-linux-gnu/ ]; then tar xvf /rknpu2.tar -C /; fi
 		;;
         *)
 		echo "This chip does not support gpu acceleration or not input!!!"
@@ -79,7 +70,7 @@ update_npu_fw() {
 }
 
 
-compatible=$(cat /proc/device-tree/compatible)
+compatible=$(cat /proc/device-tree/compatible | tr -d '\0')
 chipname=""
 case "$compatible" in
     *rk3288*)  chipname="rk3288" ;;
@@ -119,27 +110,21 @@ if [ ! -e "/usr/local/first_boot_flag" ]; then
     echo "It's the first time booting. The rootfs will be configured."
 
     # Force rootfs synced
-    mount -o remount,sync /
+    # Flush explicitly when committing initialization state; keep normal I/O mode.
 
-    install_packages "$chipname" || exit 1
+    install_packages "$chipname"
 
     if [ -e /usr/bin/gst-launch-1.0 ]; then
         setcap CAP_SYS_ADMIN+ep /usr/bin/gst-launch-1.0
     fi
 
-    if [ -e "/dev/rfkill" ]; then
-        rm /dev/rfkill
-    fi
+    # Keep the kernel-created rfkill device node intact.
 
-    rm -rf /*.deb /*.tar
+    # Keep source packages until initialization has completed successfully.
 
-    touch /usr/local/first_boot_flag
+    # The coordinator writes first_boot_flag after this entire script succeeds.
 
-    # In order to achieve better compatibility, various applications will being
-    # installed during the first system startup. This can result in slow boot times,
-    # slow read/write speeds, and issues such as PipeWire audio being silent.
-    sync
-    shutdown -r now
+    # A single reboot, if needed, is scheduled after platform setup.
 fi
 
 # support power management
@@ -165,10 +150,63 @@ if [ -e /usr/lib/aarch64-linux-gnu/ ]; then
 fi
 
 # sync system time
-hwclock --systohc
+hwclock --systohc || echo "Warning: RTC clock update failed; continuing boot" >&2
 
 # read mac-address from efuse
 # if [ "$BOARDNAME" == "rk3288-miniarm" ]; then
 #     MAC=`xxd -s 16 -l 6 -g 1 /sys/bus/nvmem/devices/rockchip-efuse0/nvmem | awk '{print $2$3$4$5$6$7 }'`
 #     ifconfig eth0 hw ether $MAC
 # fi
+
+}
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /run/lock /var/log /var/lib/armsom
+exec 9>/run/lock/armsom-first-boot.lock
+flock -w 120 9 || { echo "Another initialization is still running" >&2; exit 1; }
+exec > >(exec 9>&-; tee -a /var/log/armsom-first-boot.log) 2>&1
+trap 'rc=$?; trap - ERR; first_boot_recover_kernel; echo "[first-boot] FAILED at line $LINENO (exit $rc); packages and pending state retained"; exit "$rc"' ERR
+. /usr/lib/armsom/first-boot-common.sh
+planned_reboot=0
+trap 'if [ "$planned_reboot" = 1 ]; then exit 0; fi; echo "Initialization interrupted; recovery journal retained" >&2; exit 1' TERM INT HUP
+
+echo "[first-boot] Starting initialization for boot $(cat /proc/sys/kernel/random/boot_id)"
+userspace_needed=0
+[ -e /usr/local/first_boot_flag ] || userspace_needed=1
+platform_setup 9>&-
+
+if [ "$userspace_needed" = 1 ]; then
+    first_boot_request_reboot
+    first_boot_mark /usr/local/first_boot_flag
+fi
+
+pending=/var/lib/armsom/first-boot-reboot
+if [ -f "$pending" ]; then
+    if [ "$(cat "$pending")" != "$(cat /proc/sys/kernel/random/boot_id)" ]; then
+        # A later boot has already activated the initialized system.
+        shopt -s nullglob
+        if [ -f /var/lib/armsom/first-boot-kernel-release ]; then
+            [ "$(uname -r)" = "$(cat /var/lib/armsom/first-boot-kernel-release)" ] || {
+                echo "Expected initialized kernel is not running; keeping recovery files" >&2; exit 1;
+            }
+        fi
+        packages=(/var/lib/armsom/kernel-packages/linux-image-*.deb /var/lib/armsom/kernel-packages/linux-headers-*.deb)
+        if [ "${#packages[@]}" -gt 0 ]; then
+            rm -f -- "${packages[@]}" || echo "[first-boot] Warning: could not clean cached kernel packages" >&2
+        fi
+        rm -f "$pending"
+        sync -f /var/lib/armsom
+    else
+        # Reboot only after both stages and normal platform setup succeeded.
+        [ -e /boot/boot_init ] && [ -e /usr/local/first_boot_flag ]
+        sync
+        echo "[first-boot] Initialization complete; one planned reboot is required before desktop startup"
+        planned_reboot=1
+        systemctl --no-block reboot || { planned_reboot=0; exit 1; }
+        # Stay activating so the display manager cannot race the reboot request.
+        # systemd terminates this service when processing the shutdown transaction.
+        sleep infinity
+        exit 0
+    fi
+fi
+echo "[first-boot] Initialization complete; continuing normal boot"
