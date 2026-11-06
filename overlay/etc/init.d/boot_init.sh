@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -eE
 
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -59,10 +59,7 @@ board_info() {
 				BOARD_uEnv='uEnvarmsom-cm7s-io.txt'
 				;;
 			*)
-				echo "Device ID Error !!!"
-				BOARD_NAME='armsom-sige7'
-				BOARD_DTB='rk3588-armsom-sige7.dtb'
-				BOARD_uEnv='uEnvarmsom-sige7.txt'
+				echo "Unknown board: $1" >&2
 				;;
 		esac
 	fi
@@ -78,51 +75,60 @@ board_id() {
 	echo "SOC_type:"$SOC_type
 }
 
-board_id
-board_info ${BOARD_ID} ${SOC_type}
 
-# first boot configure
-
-until [ -e "/dev/disk/by-partlabel/boot" ]
-do
-	echo "wait /dev/disk/by-partlabel/boot"
-	sleep 0.1
+# Boot partition initialization. Reboot is owned by rockchip.sh.
+. /usr/lib/armsom/first-boot-common.sh
+trap 'rc=$?; echo "[boot-init] FAILED at line $LINENO: $BASH_COMMAND (exit $rc)" >&2; exit "$rc"' ERR
+for tool in awk findmnt lsblk mountpoint udevadm fsck mount readlink wc python3 dpkg dpkg-deb tar cmp flock; do
+    command -v "$tool" >/dev/null || { echo "Required boot initialization tool missing: $tool" >&2; exit 1; }
 done
+mkdir -p /run/lock
+exec 8>/run/lock/armsom-boot-init.lock
+flock -n 8 || { echo "Boot initialization is already running" >&2; exit 1; }
 
-if [ ! -e "/boot/boot_init" ] ; then
-	if [ ! -e "/dev/disk/by-partlabel/userdata" ] ; then
-		if [ ! -L "/boot/rk-kernel.dtb" ] ; then
-			for x in $(cat /proc/cmdline); do
-				case $x in
-				root=*)
-					Root_Part=${x#root=}
-					;;
-				boot_part=*)
-					Boot_Part_Num=${x#boot_part=}
-					;;
-				esac
-			done
+# Validate /boot on every boot, including systems already initialized.
+# Boot mount helpers are in first-boot-common.sh.
+first_boot_mount_boot
+first_boot_recover_kernel
+[ -e /boot/boot_init ] && exit 0
 
-			Boot_Part="${Root_Part::-1}${Boot_Part_Num}"
-            mount "$Boot_Part" /boot
-			echo "$Boot_Part  /boot  auto  defaults  0 2" >> /etc/fstab
-		fi
+board_id
+board_info "$BOARD_ID" "$SOC_type"
+[ -n "$BOARD_DTB" ] && [ -n "$BOARD_uEnv" ] || {
+    echo "Unsupported board: $BOARD_ID ($SOC_type); boot links unchanged" >&2; exit 1;
+}
 
-		service lightdm stop || echo "skip error"
-
-		apt install -fy --allow-downgrades /boot/kerneldeb/* || true
-		apt-mark hold linux-headers-$(uname -r) linux-image-$(uname -r) || true
-
-		ln -sf dtb/$BOARD_DTB /boot/rk-kernel.dtb
-		ln -sf $BOARD_uEnv /boot/uEnv/uEnv.txt
-
-		touch /boot/boot_init
-		rm -f /boot/kerneldeb/*
-		cp -f /boot/logo_kernel.bmp /boot/logo.bmp
-		reboot
-	else
-		echo "PARTLABEL=oem  /oem  ext4  defaults  0 2" >> /etc/fstab
-		echo "PARTLABEL=userdata  /userdata  ext4  defaults  0 2" >> /etc/fstab
-		touch /boot/boot_init
-	fi
+# Scope partition detection to the active boot disk; a USB/SD userdata
+# label must not change how this system initializes its kernel.
+boot_source=$(readlink -f "$(findmnt -nro SOURCE -M /boot)")
+boot_disk=$(lsblk -ndo PKNAME "$boot_source")
+[ -n "$boot_disk" ] || { echo "Cannot identify the mounted boot partition disk" >&2; exit 1; }
+if ! lsblk -nrpo PARTLABEL "/dev/$boot_disk" | grep -Fxq userdata; then
+    # Check all inputs before installing packages or replacing working links.
+    [ -f "/boot/dtb/$BOARD_DTB" ] && [ -f "/boot/uEnv/$BOARD_uEnv" ] || {
+        echo "Missing board DTB/uEnv; boot links unchanged" >&2; exit 1;
+    }
+    first_boot_cache_debs
+    packages=(/var/lib/armsom/kernel-packages/linux-image-*.deb /var/lib/armsom/kernel-packages/linux-headers-*.deb)
+    [ "${#packages[@]}" -gt 0 ] || { echo "Missing local kernel packages" >&2; exit 1; }
+    first_boot_install_debs "${packages[@]}"
+    [ -f "/boot/dtb/$BOARD_DTB" ] && [ -f "/boot/uEnv/$BOARD_uEnv" ]
+    first_boot_link "dtb/$BOARD_DTB" /boot/rk-kernel.dtb
+    first_boot_link "$BOARD_uEnv" /boot/uEnv/uEnv.txt
+    if [ -f /boot/logo_kernel.bmp ]; then
+        cp -f /boot/logo_kernel.bmp /boot/logo.bmp
+    fi
+    first_boot_request_reboot
+else
+    for label in oem userdata; do
+        target="/$label"
+        partition=$(lsblk -nrpo NAME,PARTLABEL "/dev/$boot_disk" | awk -v l="$label" '$2 == l { print $1; exit }')
+        [ -n "$partition" ] || continue
+        uuid=$(lsblk -ndo UUID "$partition")
+        [ -n "$uuid" ] || { echo "Missing filesystem UUID for $partition" >&2; exit 1; }
+        if ! awk -v t="$target" '$1 !~ /^#/ && $2 == t { found=1 } END { exit !found }' /etc/fstab; then
+            first_boot_fstab_add "UUID=$uuid $target ext4 defaults 0 2"
+        fi
+    done
 fi
+first_boot_mark /boot/boot_init

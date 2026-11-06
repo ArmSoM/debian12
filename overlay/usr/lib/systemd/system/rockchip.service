@@ -1,14 +1,17 @@
-#start
 [Unit]
-Description=Setup rockchip platform environment
+Description=Initialize ArmSoM boot files and platform environment
 DefaultDependencies=no
-After=local-fs.target
+After=local-fs.target resize-all.service
+Before=display-manager.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
-Type=simple
+Type=oneshot
 ExecStart=/etc/init.d/rockchip.sh
+RemainAfterExit=yes
+TimeoutStartSec=15min
+StandardOutput=journal+console
+StandardError=journal+console
 
 [Install]
 WantedBy=sysinit.target
-#end
-

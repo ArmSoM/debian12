@@ -135,12 +135,15 @@ sudo cp -rpfv packages/$ARCH/libmali/$MALI_PKG.deb $TARGET_ROOTFS_DIR/packages/i
 sudo cp -rpfv packages/$ARCH/${ISP:0:5}/camera_engine_$ISP*.deb $TARGET_ROOTFS_DIR/packages/install_packages
 
 #linux kernel deb
-if [ -e ../linux-headers* ]; then
-    Image_Deb=$(basename ../linux-headers*)
-    sudo mkdir -p $TARGET_ROOTFS_DIR/boot/kerneldeb
+kernel_headers=(../linux-headers-*.deb)
+if [ -f "${kernel_headers[0]}" ]; then
+    [ "${#kernel_headers[@]}" = 1 ] || { echo "Expected exactly one kernel headers DEB" >&2; exit 1; }
+    Image_Deb=$(basename "${kernel_headers[0]}")
+    [ -f "../${Image_Deb/headers/image}" ] || { echo "Matching kernel image DEB missing" >&2; exit 1; }
+    sudo mkdir -p $TARGET_ROOTFS_DIR/var/lib/armsom/kernel-packages
     sudo touch $TARGET_ROOTFS_DIR/boot/build-host
-    sudo cp -vrpf ../${Image_Deb} $TARGET_ROOTFS_DIR/boot/kerneldeb
-    sudo cp -vrpf ../${Image_Deb/headers/image} $TARGET_ROOTFS_DIR/boot/kerneldeb
+    sudo cp -vrpf ../${Image_Deb} $TARGET_ROOTFS_DIR/var/lib/armsom/kernel-packages
+    sudo cp -vrpf ../${Image_Deb/headers/image} $TARGET_ROOTFS_DIR/var/lib/armsom/kernel-packages
 fi
 
 # overlay folder
@@ -221,7 +224,10 @@ fi
 
 \${APT_INSTALL} /packages/install_packages/*.deb
 
-\${APT_INSTALL} /boot/kerneldeb/* || true
+\${APT_INSTALL} python3 || exit 1
+if ls /var/lib/armsom/kernel-packages/*.deb >/dev/null 2>&1; then
+    \${APT_INSTALL} /var/lib/armsom/kernel-packages/*.deb || exit 1
+fi
 
 echo -e "\033[47;36m ----- power management ----- \033[0m"
 \${APT_INSTALL} pm-utils triggerhappy bsdmainutils
