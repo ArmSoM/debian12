@@ -165,7 +165,15 @@ mkdir -p /run/lock /var/log /var/lib/armsom
 exec 9>/run/lock/armsom-first-boot.lock
 flock -w 120 9 || { echo "Another initialization is still running" >&2; exit 1; }
 exec > >(exec 9>&-; tee -a /var/log/armsom-first-boot.log) 2>&1
-trap 'rc=$?; trap - ERR; first_boot_recover_kernel; echo "[first-boot] FAILED at line $LINENO (exit $rc); packages and pending state retained"; exit "$rc"' ERR
+first_boot_failed()
+{
+    local rc=$1 line=$2
+    trap - ERR
+    first_boot_recover_kernel || echo "[first-boot] Recovery deferred; journal retained" >&2
+    echo "[first-boot] FAILED at line $line (exit $rc); source packages retained" >&2
+    exit "$rc"
+}
+trap 'first_boot_failed "$?" "$LINENO"' ERR
 . /usr/lib/armsom/first-boot-common.sh
 planned_reboot=0
 trap 'if [ "$planned_reboot" = 1 ]; then exit 0; fi; echo "Initialization interrupted; recovery journal retained" >&2; exit 1' TERM INT HUP
@@ -175,6 +183,10 @@ userspace_needed=0
 [ -e /usr/local/first_boot_flag ] || userspace_needed=1
 platform_setup 9>&-
 
+[ -e /boot/boot_init ] || {
+    echo "[first-boot] Boot stage incomplete; refusing userspace completion" >&2
+    exit 1
+}
 if [ "$userspace_needed" = 1 ]; then
     first_boot_request_reboot
     first_boot_mark /usr/local/first_boot_flag
@@ -198,7 +210,10 @@ if [ -f "$pending" ]; then
         sync -f /var/lib/armsom
     else
         # Reboot only after both stages and normal platform setup succeeded.
-        [ -e /boot/boot_init ] && [ -e /usr/local/first_boot_flag ]
+        [ -e /boot/boot_init ] && [ -e /usr/local/first_boot_flag ] || {
+            echo "[first-boot] Initialization markers incomplete; refusing reboot" >&2
+            exit 1
+        }
         sync
         echo "[first-boot] Initialization complete; one planned reboot is required before desktop startup"
         planned_reboot=1

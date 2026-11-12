@@ -80,6 +80,7 @@ done
 mkdir -p /run/lock
 exec 8>/run/lock/armsom-boot-init.lock
 flock -n 8 || { echo "Boot initialization is already running" >&2; exit 1; }
+FIRST_BOOT_INIT_LOCK_HELD=1
 
 # Validate /boot on every boot, including systems already initialized.
 # Boot mount helpers are in first-boot-common.sh.
@@ -104,10 +105,14 @@ if ! lsblk -nrpo PARTLABEL "/dev/$boot_disk" | grep -Fxq userdata; then
         echo "Missing board DTB/uEnv; boot links unchanged" >&2; exit 1;
     }
     first_boot_cache_debs
+    shopt -s nullglob
     packages=(/var/lib/armsom/kernel-packages/linux-image-*.deb /var/lib/armsom/kernel-packages/linux-headers-*.deb)
     [ "${#packages[@]}" -gt 0 ] || { echo "Missing local kernel packages" >&2; exit 1; }
     first_boot_install_debs "${packages[@]}"
-    [ -f "/boot/dtb/$BOARD_DTB" ] && [ -f "/boot/uEnv/$BOARD_uEnv" ]
+    [ -f "/boot/dtb/$BOARD_DTB" ] && [ -f "/boot/uEnv/$BOARD_uEnv" ] || {
+        echo "Installed kernel lacks board DTB/uEnv; initialization incomplete" >&2
+        exit 1
+    }
     first_boot_link "dtb/$BOARD_DTB" /boot/rk-kernel.dtb
     first_boot_link "$BOARD_uEnv" /boot/uEnv/uEnv.txt
     if [ -f /boot/logo_kernel.bmp ]; then
@@ -127,3 +132,4 @@ else
     done
 fi
 first_boot_mark /boot/boot_init
+first_boot_commit_kernel

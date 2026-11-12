@@ -1,29 +1,159 @@
 #!/bin/bash
 # Small shared helpers; failed initialization must remain retryable.
-first_boot_mark()
+first_boot_error()
 {
-    local tmp
-    tmp=$(mktemp "${1}.XXXXXX")
-    printf '%s\n' "${2:-$(cat /proc/sys/kernel/random/boot_id)}" > "$tmp"
-    sync -f "$tmp"
-    mv -f "$tmp" "$1"
-    sync -f "$(dirname "$1")"
+    printf '[first-boot] %s\n' "$*" >&2
 }
 
-first_boot_request_reboot() { first_boot_mark /var/lib/armsom/first-boot-reboot; }
+first_boot_mark()
+{
+    local tmp value
+    value=${2:-$(cat /proc/sys/kernel/random/boot_id)}
+    [ -n "$value" ] || { first_boot_error "Empty state for $1"; return 1; }
+    tmp=$(mktemp "${1}.XXXXXX") || return 1
+    printf '%s\n' "$value" > "$tmp" || return 1
+    sync -f "$tmp" || return 1
+    mv -f -- "$tmp" "$1" || return 1
+    sync -f "$(dirname "$1")" || return 1
+}
+
+first_boot_request_reboot()
+{
+    first_boot_mark /var/lib/armsom/first-boot-reboot
+}
+
+# Read-only validation: recovery must never mount, fsck or edit fstab.
+first_boot_validate_mounted_boot()
+{
+    local expected source options
+    expected=$(first_boot_boot_device) || return 1
+    mountpoint -q /boot || {
+        first_boot_error "Recovery requires a mounted /boot; journal retained"
+        return 1
+    }
+    source=$(findmnt -nro SOURCE -M /boot) || return 1
+    source=$(readlink -f "$source") || return 1
+    [ "$source" = "$expected" ] || {
+        first_boot_error "Wrong /boot source: $source; expected $expected; journal retained"
+        return 1
+    }
+    options=$(findmnt -nro OPTIONS -M /boot) || return 1
+    case ",$options," in
+        *,rw,*) ;;
+        *) first_boot_error "Read-only /boot; journal retained"; return 1 ;;
+    esac
+}
+
+# The disk is selected relative to the running root, not by a global UUID lookup.
+# PARTUUID/UUID bind a new recovery journal to that partition across reboots.
+first_boot_boot_identity()
+{
+    local device identity
+    device=$(first_boot_boot_device) || return 1
+    identity=$(lsblk -dnro PARTUUID,UUID "$device") || return 1
+    [ -n "${identity//[[:space:]]/}" ] || {
+        first_boot_error "Cannot identify boot partition $device"
+        return 1
+    }
+    printf '%s\n' "$identity"
+}
+
+first_boot_read_backup()
+{
+    local backup
+    backup=$(cat /var/lib/armsom/kernel-install-backup) || return 1
+    [[ "$backup" =~ ^/var/lib/armsom/kernel-backup\.[[:alnum:]]+$ ]] &&
+        [ -d "$backup" ] && [ ! -L "$backup" ] || {
+        first_boot_error "Invalid recovery journal; no files restored"
+        return 1
+    }
+    printf '%s\n' "$backup"
+}
+
+first_boot_validate_backup_identity()
+{
+    local backup=$1 identity saved
+    # Old journals have no partition identity. Do not guess their destination.
+    [ -f "$backup/boot.identity" ] || {
+        first_boot_error "Legacy recovery journal lacks boot.identity; manual recovery required: $backup"
+        return 1
+    }
+    identity=$(first_boot_boot_identity) || return 1
+    saved=$(cat "$backup/boot.identity") || return 1
+    [ "$identity" = "$saved" ] || {
+        first_boot_error "Recovery partition identity mismatch; journal retained"
+        return 1
+    }
+}
 
 first_boot_recover_kernel()
+(
+    # A subshell releases this lock even when a recovery operation fails.
+    [ -f /var/lib/armsom/kernel-install-backup ] || return 0
+    if [ "${FIRST_BOOT_INIT_LOCK_HELD:-0}" != 1 ]; then
+        exec 8>/run/lock/armsom-boot-init.lock || return 1
+        flock -n 8 || {
+            first_boot_error "Boot initialization is busy; recovery deferred"
+            return 1
+        }
+    fi
+    local backup state
+    backup=$(first_boot_read_backup) || return 1
+    first_boot_validate_mounted_boot || return 1
+    first_boot_validate_backup_identity "$backup" || return 1
+    if [ -f "$backup/committed" ]; then
+        # Commit is durable before journal removal. Never undo a committed boot.
+        [ -e /boot/boot_init ] || {
+            first_boot_error "Committed boot marker missing; journal retained"
+            return 1
+        }
+        rm -f /var/lib/armsom/kernel-install-backup || return 1
+        sync -f /var/lib/armsom || return 1
+        return 0
+    fi
+    # Validate all archives and state snapshots before the first restore write.
+    tar -tf "$backup/boot.tar" >/dev/null || return 1
+    tar -tf "$backup/modules.tar" >/dev/null || return 1
+    for state in first-boot-kernel-release first-boot-reboot; do
+        [ -f "$backup/$state" ] || [ -f "$backup/$state.absent" ] || {
+            first_boot_error "Incomplete recovery state: $state"
+            return 1
+        }
+    done
+    echo "Restoring interrupted kernel installation from $backup" >&2
+    tar -xpf "$backup/boot.tar" -C /boot || return 1
+    tar -xpf "$backup/modules.tar" -C / || return 1
+    # The transaction starts before boot_init exists. A partial commit must retry.
+    rm -f /boot/build-host /boot/boot_init || return 1
+    for state in first-boot-kernel-release first-boot-reboot; do
+        if [ -f "$backup/$state.absent" ]; then
+            rm -f "/var/lib/armsom/$state" || return 1
+        else
+            cp -p -- "$backup/$state" "/var/lib/armsom/$state" || return 1
+        fi
+    done
+    # This restores bootability, not the entire dpkg database. Retained DEBs are
+    # reinstalled on retry; never mark the interrupted initialization complete.
+    sync || return 1
+    rm -f /var/lib/armsom/kernel-install-backup || return 1
+    sync -f /var/lib/armsom || return 1
+)
+
+first_boot_commit_kernel()
 {
     local backup
     [ -f /var/lib/armsom/kernel-install-backup ] || return 0
-    backup=$(cat /var/lib/armsom/kernel-install-backup)
-    [[ "$backup" =~ ^/var/lib/armsom/kernel-backup\.[[:alnum:]]+$ ]] || return 1
-    [ -f "$backup/boot.tar" ] && [ -f "$backup/modules.tar" ] || return 1
-    echo "Restoring interrupted kernel installation from $backup" >&2
-    tar -xpf "$backup/boot.tar" -C /boot
-    tar -xpf "$backup/modules.tar" -C /
-    rm -f /boot/build-host /var/lib/armsom/kernel-install-backup
-    sync
+    backup=$(first_boot_read_backup) || return 1
+    first_boot_validate_mounted_boot || return 1
+    first_boot_validate_backup_identity "$backup" || return 1
+    [ -e /boot/boot_init ] || {
+        first_boot_error "Cannot commit an incomplete boot stage"
+        return 1
+    }
+    sync || return 1
+    first_boot_mark "$backup/committed" || return 1
+    rm -f /var/lib/armsom/kernel-install-backup || return 1
+    sync -f /var/lib/armsom || return 1
 }
 
 first_boot_cache_debs()
@@ -60,12 +190,20 @@ first_boot_cache_debs()
 
 first_boot_install_debs()
 {
-    local package name version image='' release backup needed available rc=0
+    local package name version image='' release backup needed available state size sizes space i rc=0
     local names=() versions=() images=() headers=()
+    [ "$#" -eq 2 ] || { first_boot_error "Expected one image and one headers package"; return 1; }
+    [ ! -e /var/lib/armsom/kernel-install-backup ] || {
+        first_boot_error "Pending kernel recovery must finish before installation"
+        return 1
+    }
     for package in "$@"; do
-        name=$(dpkg-deb -f "$package" Package)
-        version=$(dpkg-deb -f "$package" Version)
-        [ "$(dpkg-deb -f "$package" Architecture)" = "$(dpkg --print-architecture)" ]
+        name=$(dpkg-deb -f "$package" Package) || return 1
+        version=$(dpkg-deb -f "$package" Version) || return 1
+        [ "$(dpkg-deb -f "$package" Architecture)" = "$(dpkg --print-architecture)" ] || {
+            first_boot_error "Package architecture mismatch: $package"
+            return 1
+        }
         names+=("$name"); versions+=("$version")
         case "$name" in
             linux-image-*) images+=("$package"); image=$package; release=${name#linux-image-} ;;
@@ -73,78 +211,108 @@ first_boot_install_debs()
             *) echo "Unexpected initialization package: $name" >&2; return 1 ;;
         esac
     done
-    [ "${#images[@]}" = 1 ] && [ "${#headers[@]}" = 1 ]
-    [ "$(dpkg-deb -f "${headers[0]}" Version)" = "$(dpkg-deb -f "$image" Version)" ]
-    [ "$(dpkg-deb -f "${headers[0]}" Package)" = "linux-headers-$release" ]
+    [ "${#images[@]}" -eq 1 ] && [ "${#headers[@]}" -eq 1 ] || {
+        first_boot_error "Expected exactly one kernel image and one headers package"
+        return 1
+    }
+    [ "${versions[0]}" = "${versions[1]}" ] || {
+        first_boot_error "Kernel image and headers versions differ"
+        return 1
+    }
+    [ "$(dpkg-deb -f "${headers[0]}" Package)" = "linux-headers-$release" ] || {
+        first_boot_error "Kernel image and headers releases differ"
+        return 1
+    }
+    first_boot_validate_mounted_boot || return 1
+    [ ! -e /boot/boot_init ] || {
+        first_boot_error "Refusing to initialize an already committed boot stage"
+        return 1
+    }
+    [ ! -e /boot/build-host ] || { first_boot_error "Unexpected build-host marker"; return 1; }
     # Check dependencies without network access or changing the package database.
-    dpkg --no-act --install "$@"
-    first_boot_check_space "$image"
-    needed=$(du -sk /boot /lib/modules/"$(uname -r)" | awk '{s+=$1} END {print s}')
-    for package in "$@"; do needed=$((needed + $(dpkg-deb -f "$package" Installed-Size))); done
-    available=$(df -Pk /var/lib/armsom | awk 'END {print $4}')
+    dpkg --no-act --install "$@" || return 1
+    first_boot_check_space "$image" || return 1
+    sizes=$(du -sk /boot /lib/modules/"$(uname -r)") || return 1
+    needed=$(printf '%s\n' "$sizes" | awk '{s+=$1} END {print s}') || return 1
+    for package in "$@"; do
+        size=$(dpkg-deb -f "$package" Installed-Size) || return 1
+        [[ "$size" =~ ^[0-9]+$ ]] || { first_boot_error "Invalid package size: $package"; return 1; }
+        needed=$((needed + size))
+    done
+    space=$(df -Pk /var/lib/armsom) || return 1
+    available=$(printf '%s\n' "$space" | awk 'END {print $4}') || return 1
     [ "$available" -gt "$((needed + 65536))" ] || { echo "Insufficient root space for installation and recovery" >&2; return 1; }
-    backup=$(mktemp -d /var/lib/armsom/kernel-backup.XXXXXX)
-    tar -cpf "$backup/boot.tar" -C /boot .
-    tar -cpf "$backup/modules.tar" -C / "lib/modules/$(uname -r)"
-    sync -f /var/lib/armsom
+    backup=$(mktemp -d /var/lib/armsom/kernel-backup.XXXXXX) || return 1
+    tar -cpf "$backup/boot.tar" -C /boot . || return 1
+    tar -cpf "$backup/modules.tar" -C / "lib/modules/$(uname -r)" || return 1
+    sync -f /var/lib/armsom || return 1
+    first_boot_boot_identity > "$backup/boot.identity" || return 1
+    for state in first-boot-kernel-release first-boot-reboot; do
+        if [ -e "/var/lib/armsom/$state" ]; then
+            cp -p -- "/var/lib/armsom/$state" "$backup/$state" || return 1
+        else
+            touch "$backup/$state.absent" || return 1
+        fi
+    done
+    sync -f /var/lib/armsom || return 1
     # Suppress the package's board-selection hook; this caller owns boot links.
-    [ ! -e /boot/build-host ] || { echo "Unexpected build-host marker" >&2; return 1; }
-    first_boot_mark /var/lib/armsom/kernel-install-backup "$backup"
-    touch /boot/build-host
+    first_boot_mark /var/lib/armsom/kernel-install-backup "$backup" || return 1
+    touch /boot/build-host || return 1
     DEBIAN_FRONTEND=noninteractive SYSTEMD_OFFLINE=1 dpkg --install "$@" || rc=$?
-    rm -f /boot/build-host
+    rm -f /boot/build-host || return 1
     for ((i=0; i<${#names[@]}; i++)); do
         [ "$(dpkg-query -W -f='${Status} ${Version}' "${names[i]}")" = "install ok installed ${versions[i]}" ] || rc=1
     done
     if [ "$rc" != 0 ]; then
         echo "Kernel installation failed; restoring boot files/modules from $backup. DEBs retained for repair." >&2
-        first_boot_recover_kernel
+        first_boot_recover_kernel || first_boot_error "Recovery deferred; journal retained"
         return "$rc"
     fi
-    first_boot_mark /var/lib/armsom/first-boot-kernel-release "$release"
-    apt-mark hold "${names[@]}"
-    rm -f /var/lib/armsom/kernel-install-backup
-    sync -f /var/lib/armsom
+    first_boot_mark /var/lib/armsom/first-boot-kernel-release "$release" || return 1
+    apt-mark hold "${names[@]}" || return 1
+    # boot_init.sh commits after links, reboot request and boot marker are durable.
+    sync -f /var/lib/armsom || return 1
 }
 
 first_boot_link()
 {
     local temporary
-    temporary=$(mktemp -d "$(dirname "$2")/.armsom-link.XXXXXX")
-    ln -s "$1" "$temporary/link"
-    mv -Tf "$temporary/link" "$2"
-    rmdir "$temporary"
-    sync -f "$(dirname "$2")"
+    temporary=$(mktemp -d "$(dirname "$2")/.armsom-link.XXXXXX") || return 1
+    ln -s "$1" "$temporary/link" || return 1
+    mv -Tf "$temporary/link" "$2" || return 1
+    rmdir "$temporary" || return 1
+    sync -f "$(dirname "$2")" || return 1
 }
 
 first_boot_fstab_add()
 {
     local temporary
-    temporary=$(mktemp /etc/fstab.XXXXXX)
-    cp -p /etc/fstab "$temporary"
-    printf '%s\n' "$1" >> "$temporary"
-    sync -f "$temporary"
-    mv -f "$temporary" /etc/fstab
-    sync -f /etc
+    temporary=$(mktemp /etc/fstab.XXXXXX) || return 1
+    cp -p /etc/fstab "$temporary" || return 1
+    printf '%s\n' "$1" >> "$temporary" || return 1
+    sync -f "$temporary" || return 1
+    mv -f "$temporary" /etc/fstab || return 1
+    sync -f /etc || return 1
 }
 
-# /boot is selected from the running root filesystem, never by a global UUID.
-first_boot_mount_boot()
-{
-    local root_device root_disk boot_device boot_disk boot_number="" arg
-    local candidates mounted_source mounted_options temporary check_status
-    udevadm settle --timeout=30
-    root_device=$(findmnt -nro SOURCE -T /)
-    root_device=$(readlink -f "$root_device")
+# Selection is read-only and shared with the recovery guard.
+first_boot_boot_device()
+(
+    set -o pipefail
+    local root_device root_disk boot_device boot_disk boot_number="" arg cmdline
+    local candidates
+    root_device=$(findmnt -nro SOURCE -T /) || return 1
+    root_device=$(readlink -f "$root_device") || return 1
     [ -b "$root_device" ] || { echo "Cannot resolve running root block device: $root_device" >&2; return 1; }
     [ "$(lsblk -ndo TYPE "$root_device")" = part ] || {
         echo "Unsupported root layout: expected a physical disk partition" >&2; return 1;
     }
-    root_disk=$(lsblk -ndo PKNAME "$root_device")
+    root_disk=$(lsblk -ndo PKNAME "$root_device") || return 1
     [ -n "$root_disk" ] && [ -b "/dev/$root_disk" ] || {
         echo "Cannot identify running root disk" >&2; return 1;
     }
-    for arg in $(cat /proc/cmdline); do
+    cmdline=$(cat /proc/cmdline) || return 1
+    for arg in $cmdline; do
         case "$arg" in
             boot_part=*)
                 [ -z "$boot_number" ] || { echo "Duplicate boot_part arguments" >&2; return 1; }
@@ -161,20 +329,30 @@ first_boot_mount_boot()
             *) boot_device="/dev/${root_disk}${boot_number}" ;;
         esac
     else
-        candidates=$(lsblk -nrpo NAME,PARTLABEL "/dev/$root_disk" | awk '$2 == "boot" { print $1 }')
+        candidates=$(lsblk -nrpo NAME,PARTLABEL "/dev/$root_disk" | awk '$2 == "boot" { print $1 }') || return 1
         [ -n "$candidates" ] && [ "$(printf '%s\n' "$candidates" | wc -l)" -eq 1 ] || {
             echo "Expected exactly one boot partition on /dev/$root_disk" >&2; return 1;
         }
         boot_device=$candidates
     fi
-    boot_device=$(readlink -f "$boot_device")
+    boot_device=$(readlink -f "$boot_device") || return 1
     [ -b "$boot_device" ] && [ "$boot_device" != "$root_device" ] || {
         echo "Invalid boot partition: $boot_device" >&2; return 1;
     }
-    boot_disk=$(lsblk -ndo PKNAME "$boot_device")
+    boot_disk=$(lsblk -ndo PKNAME "$boot_device") || return 1
     [ "$boot_disk" = "$root_disk" ] && [ "$(lsblk -ndo TYPE "$boot_device")" = part ] || {
         echo "Boot partition must belong to the running root disk" >&2; return 1;
     }
+
+    printf '%s\n' "$boot_device"
+)
+
+# /boot is selected from the running root filesystem, never by a global UUID.
+first_boot_mount_boot()
+{
+    local boot_device mounted_source mounted_options temporary check_status
+    udevadm settle --timeout=30 || return 1
+    boot_device=$(first_boot_boot_device) || return 1
 
     # Retire legacy fstab entries: cloned filesystems have identical UUIDs.
     # The platform initializer mounts /boot explicitly on every boot, before
@@ -223,7 +401,7 @@ first_boot_mount_boot()
         *,rw,*) ;;
         *) echo "Boot filesystem is not writable" >&2; return 1 ;;
     esac
-    echo "[boot-mount] Verified root=$root_device boot=$boot_device disk=/dev/$root_disk"
+    echo "[boot-mount] Verified same-disk boot=$boot_device"
 }
 
 first_boot_check_space()
