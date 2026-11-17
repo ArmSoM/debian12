@@ -18,4 +18,12 @@ echo "Executing $(basename $0)..."
 
 add_build_info $@
 
+# Fresh images must not start at the old base tarball/systemd build date.
+# timesync/clock supports both systemd 249 (Ubuntu) and 252 (Debian).
+clock_dir="$TARGET_DIR/var/lib/systemd/timesync"
+chroot "$TARGET_DIR" install -d -o systemd-timesync -g systemd-timesync /var/lib/systemd/timesync
+install -m 0644 /dev/null "$clock_dir/clock"
+chown --reference="$clock_dir" "$clock_dir/clock"
+touch "$clock_dir/clock"
+
 exit 0
