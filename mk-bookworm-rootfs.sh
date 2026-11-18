@@ -233,6 +233,10 @@ fi
 \${APT_INSTALL} /packages/install_packages/*.deb
 
 \${APT_INSTALL} python3 || exit 1
+# RK3528/Sige1 uses cfg80211 with the SYN43752 SDIO module.
+if [ "$SOC" = "rk3528" ]; then
+    \${APT_INSTALL} wireless-regdb || exit 1
+fi
 if ls /var/lib/armsom/kernel-packages/*.deb >/dev/null 2>&1; then
     \${APT_INSTALL} /var/lib/armsom/kernel-packages/*.deb || exit 1
 fi

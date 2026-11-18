@@ -3,7 +3,15 @@
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 board_info() {
-	if [[ "$2" == "rk3576" ]]; then
+	if [[ "$2" == "rk3528" || "$2" == "rk3528a" ]]; then
+		case $1 in
+			armsom-sige1)
+				BOARD_NAME='armsom-sige1'
+				BOARD_DTB='rk3528-armsom-sige1.dtb'
+				BOARD_uEnv='uEnvarmsom-sige1.txt'
+				;;
+		esac
+	elif [[ "$2" == "rk3576" ]]; then
 		case $1 in
 			armsom-sige5)
 				BOARD_NAME='armsom-sige5'

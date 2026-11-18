@@ -22,7 +22,12 @@ install_packages() {
         rk3328|rk3528)
 		MALI=utgard-450
 		ISP=rkisp
-		first_boot_install_debs /libmali-*$MALI*-x11*.deb
+		if [ "$boardname" = "rk3528-armsom-sige1" ]; then
+			# Sige1's Mali package is already installed when building the rootfs.
+			dpkg-query -W -f='${Status}\n' libmali-utgard-450-r7p0-x11-gbm | grep -qx 'install ok installed'
+		else
+			first_boot_install_debs /libmali-*$MALI*-x11*.deb
+		fi
 		;;
         rk3326|px30)
 		MALI=bifrost-g31-g24p0
