@@ -210,6 +210,11 @@ systemctl disable apt-daily-upgrade.service
 ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 if [[ "$TARGET" == "gnome" ]]; then
     \${APT_INSTALL} mpv 
+    # Keep AC-powered boards awake; users can enable idle suspend in Settings.
+    printf '%s\n' '[org.gnome.settings-daemon.plugins.power]' \
+        "sleep-inactive-ac-type='nothing'" \
+        > /usr/share/glib-2.0/schemas/90_armsom-power.gschema.override || exit 1
+    glib-compile-schemas /usr/share/glib-2.0/schemas || exit 1
     #Desktop background picture
     # ln -sf /usr/share/images/desktop-base/armsom-wallpaper.png /etc/alternatives/desktop-background
 elif [[ "$TARGET" == "xfce" ]]; then
