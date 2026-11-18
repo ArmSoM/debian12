@@ -1,0 +1,22 @@
+Subject: [PATCH] glamor: Skip core debug callbacks on Mali Utgard
+
+The Utgard DDK exposes KHR-only debug entry points. Calling the core debug
+callbacks during glamor initialization can jump to NULL. The existing
+Utgard workaround disables has_khr_debug later, but the setup function
+checks extensions directly and is called before that workaround.
+
+Skip debug callback setup for Utgard, leaving acceleration enabled.
+
+--- a/glamor/glamor.c
++++ b/glamor/glamor.c
+@@ -840,7 +840,9 @@
+ 
+     glamor_priv->can_copyplane = (gl_version >= 30);
+ 
+-    glamor_setup_debug_output(screen);
++    /* Utgard exposes KHR-only debug entry points; skip core debug callbacks. */
++    if (!glamor_priv->is_utgard)
++        glamor_setup_debug_output(screen);
+ 
+     glamor_priv->use_quads = !glamor_priv->is_gles &&
+                              !glamor_priv->is_core_profile;
