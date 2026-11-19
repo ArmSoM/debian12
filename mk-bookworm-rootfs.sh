@@ -109,6 +109,9 @@ esac
 
 echo -e "\033[47;36m Building for $ARCH \033[0m"
 
+source ./camera-packages.sh
+select_camera_packages "$SOC" "$ARCH" "$TARGET" || exit 1
+
 if [ ! $VERSION ]; then
     VERSION="release"
 fi
@@ -400,6 +403,15 @@ printf '%s\n' '[Time]' 'NTP=ntp.aliyun.com time.cloudflare.com ntp.ubuntu.com' \
     > /usr/lib/systemd/timesyncd.conf.d/20-armsom.conf || exit 1
 ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 printf '%s\n' Asia/Shanghai > /etc/timezone
+
+if [ "${#camera_debs[@]}" -gt 0 ]; then
+    apt-get install -y --no-remove --no-install-recommends $(printf ' /packages/camera/%q' "${camera_debs[@]}") || exit 1
+fi
+
+if [ -n "$camera_key" ]; then
+    mkdir -p /var/lib/armsom || exit 1
+    printf '%s\n' '$camera_key' > /var/lib/armsom/camera-packages.sha256 || exit 1
+fi
 
 # mark package to hold
 apt list --upgradable | cut -d/ -f1 | xargs apt-mark hold
