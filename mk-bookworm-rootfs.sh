@@ -152,6 +152,10 @@ fi
 # overlay folder
 sudo cp -rpf overlay/* $TARGET_ROOTFS_DIR/
 
+# Shared overlay menu; metadata is embedded in the kernel DTBO files.
+sudo install -D -m 0755 ../device/rockchip/common/tools/armsom-overlay \
+    "$TARGET_ROOTFS_DIR/usr/sbin/armsom-overlay"
+
 # overlay-firmware folder
 sudo cp -rpf overlay-firmware/* $TARGET_ROOTFS_DIR/
 
@@ -235,7 +239,7 @@ fi
 
 \${APT_INSTALL} /packages/install_packages/*.deb
 
-\${APT_INSTALL} python3 || exit 1
+\${APT_INSTALL} python3 device-tree-compiler || exit 1
 # RK3528/Sige1 uses cfg80211 with the SYN43752 SDIO module.
 if [ "$SOC" = "rk3528" ]; then
     \${APT_INSTALL} wireless-regdb || exit 1
